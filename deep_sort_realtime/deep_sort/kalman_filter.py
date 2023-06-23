@@ -48,6 +48,37 @@ class KalmanFilter(object):
         # state estimate. These weights control the amount of uncertainty in
         # the model. This is a bit hacky.
 ##ADD code
+        # for state extrapolation equation
+        # state transition matrix
+        self.F = np.array([[1, 0, 0, 0, dt, 0, 0, 0],
+                           [0, 1, 0, 0, 0, dt, 0, 0],
+                           [0, 0, 1, 0, 0, 0, dt, 0],
+                           [0, 0, 0, 1, 0, 0, 0, dt],
+                           [0, 0, 0, 0, 1, 0, 0, 0],
+                           [0, 0, 0, 0, 0, 1, 0, 0],
+                           [0, 0, 0, 0, 0, 0, 1, 0],
+                           [0, 0, 0, 0, 0, 0, 0, 1]])
+        # no control matrix since this is a constant velocity model
+        # measurement matrix intitialised as 4 x 4 identity matrix for measuring x,y,a,h
+        self.H = np.array([[1, 0, 0, 0],
+                           [0, 1, 0, 0],
+                           [0, 0, 1, 0],
+                           [0, 0, 0, 1]])
+        # for covariance extrapolation equation
+        # Process noise covariance
+        self.Q = np.array([[1, 0, 0, 0, 0, 0, 0, 0],
+                           [0, 1, 0, 0, 0, 0, 0, 0],
+                           [0, 0, 1, 0, 0, 0, 0, 0],
+                           [0, 0, 0, 1, 0, 0, 0, 0],
+                           [0, 0, 0, 0, 1, 0, 0, 0],
+                           [0, 0, 0, 0, 0, 1, 0, 0],
+                           [0, 0, 0, 0, 0, 0, 1, 0],
+                           [0, 0, 0, 0, 0, 0, 0, 1]]) 
+        # Measurement noise covariance
+        self.R = np.array([[1, 0, 0, 0],
+                           [0, 1, 0, 0],
+                           [0, 0, 1, 0],
+                           [0, 0, 0, 1]])
 
     def initiate(self, measurement):
         """Create track from unassociated measurement.
@@ -67,6 +98,18 @@ class KalmanFilter(object):
 
         """
 ##ADD code
+        # intially the x,y,a,h are observed and equal to measurement
+        # unobserved velocities have 0 mean (last 4 entries)
+        mean=np.array([0,0,0,0,0,0,0,0])
+        mean[:4]=measurement
+        covariance =np.array([[1, 0, 0, 0, 0, 0, 0, 0],
+                           [0, 1, 0, 0, 0, 0, 0, 0],
+                           [0, 0, 1, 0, 0, 0, 0, 0],
+                           [0, 0, 0, 1, 0, 0, 0, 0],
+                           [0, 0, 0, 0, 1, 0, 0, 0],
+                           [0, 0, 0, 0, 0, 1, 0, 0],
+                           [0, 0, 0, 0, 0, 0, 1, 0],
+                           [0, 0, 0, 0, 0, 0, 0, 1]])  
         return mean, covariance
 
     def predict(self, mean, covariance):
@@ -89,6 +132,10 @@ class KalmanFilter(object):
 
         """
 ##ADD code
+        # basically the prediction equation, here state extrapolation -> x(n+1)= F.x(n) and x(n) is the mean so
+        mean=self.F.dot(mean)
+        # and now covariance extrapolation -> P(n+1)= F.P(n).F(transpose) + Q 
+        covariance = self.F.dot(covariance).dot(self.F.T)+ self.Q
         return mean, covariance
 
     def project(self, mean, covariance):
@@ -109,6 +156,9 @@ class KalmanFilter(object):
 
         """
 ##ADD code
+        # measurement equations?
+        mean=self.H.dot(mean)
+        covariance=self.H.dot(covariance).dot(self.H.T)+self.R
         return mean, covariance
 
     def update(self, mean, covariance, measurement):
@@ -132,6 +182,23 @@ class KalmanFilter(object):
 
         """
 ##ADD code
+        # update equation -> x(n,n)=x(n,n-1) + K(n)(z(n)-H.x(n,n-1))
+        # but we need K(n), A 4x4 matrix
+        # Kalman gain equation -> K(n) = P(n,n-1).H(transpose).(H.P(n,n-1).H(transpose)+R)(inverse)
+        
+        Kalman_gain= covariance.dot(self.H.T).dot(np.linalg,inv(self.H.dot(covariance).dot(self.H.T)+self.R))
+        
+        innovation=measurement - np.dot(self.H,mean) # as it is conventionally called
+        
+        new_mean= mean+ np.dot(Kalman_gain,innovation)
+        
+        # covariance update equation (longer form, cause shorter form is "numerically unstable" according to text) -> 
+        # P(n,n)= (I-H.K(n)).P(n,n-1).(I-H.K(n))(transpose) + K(n).R.K(n)(transpose)
+        
+        newterm= np.eye(4)-np.dot(self.H,Kalman_gain)
+        
+        new_covariance=newterm.dot(covariance).dot(newterm.T) + Kalman_gain.dot(self.R).dot(Kalman_gain.T)
+        
         return new_mean, new_covariance
 
     def gating_distance(self, mean, covariance, measurements, only_position=False):
